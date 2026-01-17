@@ -2,7 +2,9 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
     <title>Levi's Focus Reader</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <style>
@@ -78,6 +80,86 @@
             border-radius: 12px;
             background: rgba(255, 68, 68, 0.1);
         }
+
+        /* Mobile responsive styles */
+        @media (max-width: 768px) {
+            body {
+                height: 100dvh; /* Dynamic viewport height for mobile browsers */
+            }
+            #display {
+                font-size: 48px;
+                height: 120px;
+                padding: 0 10px;
+                word-break: break-word;
+            }
+            #inputs {
+                top: 10px;
+                padding: 10px;
+            }
+            #inputs textarea {
+                width: 100%;
+                box-sizing: border-box;
+                font-size: 16px; /* Prevents iOS zoom on focus */
+            }
+            #controls {
+                bottom: 10px;
+                padding: 10px;
+                max-height: 60vh;
+                overflow-y: auto;
+            }
+            input, button, select {
+                margin: 4px;
+                padding: 12px 8px;
+                font-size: 14px;
+                min-height: 44px; /* Touch-friendly target size */
+            }
+            #wpm-slider {
+                width: 120px;
+            }
+            progress {
+                width: 90%;
+                max-width: 280px;
+            }
+            .mobile-row {
+                display: flex;
+                flex-wrap: wrap;
+                justify-content: center;
+                gap: 4px;
+                margin: 4px 0;
+            }
+            #font-size {
+                width: 60px !important;
+            }
+            #ramp-controls input {
+                width: 50px !important;
+            }
+            .keyboard-hint {
+                display: none !important; /* Hide keyboard shortcuts on mobile */
+            }
+            .mobile-hint {
+                display: inline !important; /* Show mobile hints */
+            }
+        }
+
+        @media (max-width: 480px) {
+            #display {
+                font-size: 36px;
+                height: 100px;
+            }
+            input, button, select {
+                margin: 3px;
+                padding: 10px 6px;
+                font-size: 13px;
+            }
+            #wpm-slider {
+                width: 100px;
+            }
+        }
+
+        /* Prevent text selection on touch */
+        * {
+            -webkit-tap-highlight-color: transparent;
+        }
     </style>
 </head>
 <body>
@@ -138,7 +220,8 @@
             <progress id="progress" value="0" max="100"></progress>
         </div><br>
         <span id="info">Words: 0 | Time left: --</span><br>
-        <span style="font-size: 12px; color: #888;">Space: Play/Pause | Left/Right: Speed | Up/Down: Skip | R: Reset</span>
+        <span class="keyboard-hint" style="font-size: 12px; color: #888;">Space: Play/Pause | Left/Right: Speed | Up/Down: Skip | R: Reset</span>
+        <span class="mobile-hint" style="font-size: 12px; color: #888; display: none;">Tap: Play/Pause | Swipe: Skip</span>
     </div>
 
     <script>
@@ -507,6 +590,33 @@
         document.getElementById('display').addEventListener('click', () => {
             if (words.length > 0) togglePlay();
         });
+
+        // Touch swipe support for mobile
+        let touchStartX = 0;
+        let touchStartY = 0;
+        const displayEl = document.getElementById('display');
+
+        displayEl.addEventListener('touchstart', (e) => {
+            touchStartX = e.touches[0].clientX;
+            touchStartY = e.touches[0].clientY;
+        }, { passive: true });
+
+        displayEl.addEventListener('touchend', (e) => {
+            if (words.length === 0) return;
+            const touchEndX = e.changedTouches[0].clientX;
+            const touchEndY = e.changedTouches[0].clientY;
+            const deltaX = touchEndX - touchStartX;
+            const deltaY = touchEndY - touchStartY;
+
+            // Only trigger if horizontal swipe is dominant and significant
+            if (Math.abs(deltaX) > 50 && Math.abs(deltaX) > Math.abs(deltaY)) {
+                if (deltaX > 0) {
+                    skipBack(); // Swipe right = go back
+                } else {
+                    skipForward(); // Swipe left = go forward
+                }
+            }
+        }, { passive: true });
 
         async function processPdf(arrayBuffer) {
             const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
