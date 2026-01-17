@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Levi's Focus Reader</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: #121212;
+            color: #e0e0e0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            text-align: center;
+        }
+        #controls {
+            position: fixed;
+            bottom: 20px;
+            width: 90%;
+            max-width: 800px;
+            background: rgba(30, 30, 30, 0.8);
+            padding: 15px;
+            border-radius: 12px;
+            backdrop-filter: blur(10px);
+        }
+        #display {
+            font-size: 72px;
+            font-weight: bold;
+            height: 150px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            user-select: none;
+        }
+        input, button, select {
+            margin: 10px;
+            padding: 10px;
+            font-size: 16px;
+        }
+        #wpm-slider {
+            width: 200px;
+        }
+        progress {
+            width: 300px;
+            height: 10px;
+        }
+        #inputs {
+            position: fixed;
+            top: 20px;
+            width: 90%;
+            max-width: 800px;
+        }
+    </style>
+</head>
+<body>
+    <div id="inputs">
+        <textarea id="text-input" rows="4" cols="50" placeholder="Paste text here..."></textarea><br>
+        <input type="file" id="file-upload" accept=".txt,.pdf"><br>
+        <button onclick="loadText()">Load Text</button>
+    </div>
+
+    <div id="display"></div>
+
+    <div id="controls" style="display:none;">
+        <button onclick="togglePlay()">Play</button>
+        <button onclick="reset()">Reset</button>
+        <button onclick="toggleFullscreen()">Fullscreen</button><br>
+        <label>WPM: <span id="wpm-value">500</span></label>
+        <input type="range" id="wpm-slider" min="100" max="1000" step="50" value="500"><br>
+        <progress id="progress" value="0" max="100"></progress><br>
+        <span id="info">Words: 0 | Time left: --</span>
+    </div>
+
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        let words = [];
+        let currentIndex = 0;
+        let timer = null;
+        let isPlaying = false;
+        let wpm = 500;
+
+        function getPivotPosition(len) {
+            if (len <= 1) return 0;
+            if (len <= 5) return 1;
+            if (len <= 9) return 2;
+            if (len <= 13) return 3;
+            return 4;
+        }
+
+        function displayWord(word) {
+            if (!word) return '';
+            const len = word.length;
+            const pivot = getPivotPosition(len);
+            const left = word.slice(0, pivot);
+            const center = word[pivot];
+            const right = word.slice(pivot + 1);
+            return `${left}<span style="color:#ff4444;">${center}</span>${right}`;
+        }
+
+        function showWord() {
+            const display = document.getElementById('display');
+            if (currentIndex < words.length) {
+                display.innerHTML = displayWord(words[currentIndex]);
+                currentIndex++;
+                updateProgress();
+            } else {
+                stop();
+                display.innerHTML = '(Finished)';
+            }
+        }
+
+        function start() {
+            if (words.length === 0 || currentIndex >= words.length) return;
+            if (timer) clearInterval(timer);
+            const delay = 60000 / wpm;
+            timer = setInterval(showWord, delay);
+            isPlaying = true;
+            document.querySelector('button[onclick="togglePlay()"]').textContent = 'Pause';
+        }
+
+        function stop() {
+            if (timer) clearInterval(timer);
+            timer = null;
+            isPlaying = false;
+            document.querySelector('button[onclick="togglePlay()"]').textContent = 'Play';
+        }
+
+        function togglePlay() {
+            if (isPlaying) stop();
+            else start();
+        }
+
+        function reset() {
+            stop();
+            currentIndex = 0;
+            document.getElementById('display').innerHTML = '';
+            updateProgress();
+        }
+
+        function updateProgress() {
+            const prog = document.getElementById('progress');
+            const info = document.getElementById('info');
+            if (words.length > 0) {
+                prog.value = (currentIndex / words.length) * 100;
+                const remainingWords = words.length - currentIndex;
+                const minutesLeft = remainingWords / wpm;
+                info.textContent = `Words: ${currentIndex}/${words.length} | Time left: ${minutesLeft.toFixed(1)} min`;
+            }
+        }
+
+        function toggleFullscreen() {
+            const elem = document.documentElement;
+            if (!document.fullscreenElement) {
+                elem.requestFullscreen().catch(err => console.log(err));
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        document.getElementById('wpm-slider').addEventListener('input', (e) => {
+            wpm = parseInt(e.target.value);
+            document.getElementById('wpm-value').textContent = wpm;
+            if (isPlaying) start(); // restart timer with new speed
+        });
+
+        async function processPdf(arrayBuffer) {
+            const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+            let fullText = '';
+            for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const content = await page.getTextContent();
+                content.items.forEach(item => {
+                    fullText += item.str + ' ';
+                });
+            }
+            return fullText;
+        }
+
+        function loadWords(text) {
+            words = text.trim().split(/\s+/).filter(w => w.length > 0);
+            currentIndex = 0;
+            document.getElementById('controls').style.display = 'block';
+            document.getElementById('display').innerHTML = '';
+            updateProgress();
+            stop();
+        }
+
+        async function loadText() {
+            const textarea = document.getElementById('text-input').value;
+            if (textarea) {
+                loadWords(textarea);
+                return;
+            }
+
+            const fileInput = document.getElementById('file-upload');
+            const file = fileInput.files[0];
+            if (!file) {
+                alert('Paste text or upload a file!');
+                return;
+            }
+
+            if (file.name.endsWith('.pdf')) {
+                const arrayBuffer = await file.arrayBuffer();
+                const text = await processPdf(arrayBuffer);
+                loadWords(text);
+            } else {
+                const reader = new FileReader();
+                reader.onload = (e) => loadWords(e.target.result);
+                reader.readAsText(file);
+            }
+        }
+    </script>
+</body>
+</html>
