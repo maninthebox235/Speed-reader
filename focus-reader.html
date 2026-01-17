@@ -6,10 +6,26 @@
     <title>Levi's Focus Reader</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <style>
+        :root {
+            --bg-color: #121212;
+            --text-color: #e0e0e0;
+            --control-bg: rgba(30, 30, 30, 0.8);
+            --pivot-color: #ff4444;
+        }
+        .theme-light {
+            --bg-color: #f5f5f5;
+            --text-color: #222222;
+            --control-bg: rgba(255, 255, 255, 0.9);
+        }
+        .theme-sepia {
+            --bg-color: #f4ecd8;
+            --text-color: #5b4636;
+            --control-bg: rgba(244, 236, 216, 0.9);
+        }
         body {
             font-family: 'Segoe UI', sans-serif;
-            background: #121212;
-            color: #e0e0e0;
+            background: var(--bg-color);
+            color: var(--text-color);
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -17,13 +33,14 @@
             height: 100vh;
             margin: 0;
             text-align: center;
+            transition: background 0.3s, color 0.3s;
         }
         #controls {
             position: fixed;
             bottom: 20px;
             width: 90%;
             max-width: 800px;
-            background: rgba(30, 30, 30, 0.8);
+            background: var(--control-bg);
             padding: 15px;
             border-radius: 12px;
             backdrop-filter: blur(10px);
@@ -36,6 +53,7 @@
             align-items: center;
             justify-content: center;
             user-select: none;
+            cursor: pointer;
         }
         input, button, select {
             margin: 10px;
@@ -55,25 +73,72 @@
             width: 90%;
             max-width: 800px;
         }
+        #inputs.dragover {
+            border: 3px dashed var(--pivot-color, #ff4444);
+            border-radius: 12px;
+            background: rgba(255, 68, 68, 0.1);
+        }
     </style>
 </head>
 <body>
     <div id="inputs">
-        <textarea id="text-input" rows="4" cols="50" placeholder="Paste text here..."></textarea><br>
-        <input type="file" id="file-upload" accept=".txt,.pdf"><br>
+        <textarea id="text-input" rows="4" cols="50" placeholder="Paste text here or drag & drop a file..."></textarea><br>
+        <input type="file" id="file-upload" accept=".txt,.pdf">
         <button onclick="loadText()">Load Text</button>
+        <button onclick="toggleLibrary()">Library</button>
+        <button onclick="toggleStats()">Stats</button>
+        <div id="library-panel" style="display:none; margin-top:10px; padding:10px; background:rgba(128,128,128,0.2); border-radius:8px; max-height:150px; overflow-y:auto;">
+            <strong>Your Library</strong>
+            <div id="library-list"></div>
+        </div>
+        <div id="stats-panel" style="display:none; margin-top:10px; padding:10px; background:rgba(128,128,128,0.2); border-radius:8px;">
+            <strong>Reading Statistics</strong>
+            <div id="stats-content"></div>
+            <button onclick="clearStats()" style="margin-top:10px; padding:4px 8px; font-size:12px;">Clear Stats</button>
+        </div>
     </div>
 
     <div id="display"></div>
 
     <div id="controls" style="display:none;">
+        <button onclick="skipBack()">&lt;&lt; -10</button>
         <button onclick="togglePlay()">Play</button>
+        <button onclick="skipForward()">+10 &gt;&gt;</button>
         <button onclick="reset()">Reset</button>
-        <button onclick="toggleFullscreen()">Fullscreen</button><br>
+        <button onclick="saveToLibrary()">Save</button>
+        <button onclick="toggleFullscreen()">Fullscreen</button>
+        <select id="theme-select">
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+            <option value="sepia">Sepia</option>
+        </select><br>
         <label>WPM: <span id="wpm-value">500</span></label>
-        <input type="range" id="wpm-slider" min="100" max="1000" step="50" value="500"><br>
-        <progress id="progress" value="0" max="100"></progress><br>
-        <span id="info">Words: 0 | Time left: --</span>
+        <input type="range" id="wpm-slider" min="100" max="1000" step="50" value="500">
+        <label>Words:
+            <select id="chunk-select">
+                <option value="1" selected>1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+            </select>
+        </label>
+        <label><input type="checkbox" id="auto-ramp"> Auto-ramp</label>
+        <span id="ramp-controls" style="display:none;">
+            <input type="number" id="start-wpm" value="200" min="100" max="1000" style="width:60px;">
+            to <input type="number" id="target-wpm" value="600" min="100" max="1000" style="width:60px;"> WPM
+        </span>
+        <label>Size: <input type="range" id="font-size" min="36" max="120" value="72" style="width:80px;"></label>
+        <select id="font-family">
+            <option value="'Segoe UI', sans-serif">Segoe UI</option>
+            <option value="Georgia, serif">Georgia</option>
+            <option value="'Courier New', monospace">Courier</option>
+            <option value="Arial, sans-serif">Arial</option>
+        </select>
+        <label>Pivot: <input type="color" id="pivot-color" value="#ff4444"></label><br>
+        <div id="progress-container" style="display:inline-block; cursor:pointer; position:relative;">
+            <progress id="progress" value="0" max="100"></progress>
+        </div><br>
+        <span id="info">Words: 0 | Time left: --</span><br>
+        <span style="font-size: 12px; color: #888;">Space: Play/Pause | Left/Right: Speed | Up/Down: Skip | R: Reset</span>
     </div>
 
     <script>
@@ -84,6 +149,18 @@
         let timer = null;
         let isPlaying = false;
         let wpm = 500;
+        let chunkSize = 1;
+        let autoRamp = false;
+        let startWpm = 200;
+        let targetWpm = 600;
+        let fontSize = 72;
+        let fontFamily = "'Segoe UI', sans-serif";
+        let pivotColor = '#ff4444';
+        let currentTextId = null;
+        let library = JSON.parse(localStorage.getItem('focusReaderLibrary') || '[]');
+        let readingStats = JSON.parse(localStorage.getItem('focusReaderStats') || '{"totalWordsRead":0,"totalTimeMs":0,"sessions":[]}');
+        let sessionStartTime = null;
+        let sessionStartIndex = 0;
 
         function getPivotPosition(len) {
             if (len <= 1) return 0;
@@ -100,15 +177,51 @@
             const left = word.slice(0, pivot);
             const center = word[pivot];
             const right = word.slice(pivot + 1);
-            return `${left}<span style="color:#ff4444;">${center}</span>${right}`;
+            return `${left}<span style="color:${pivotColor};">${center}</span>${right}`;
+        }
+
+        function displayChunk(wordsArr) {
+            if (wordsArr.length === 1) return displayWord(wordsArr[0]);
+            // For multiple words, highlight the pivot of the middle word
+            const midIndex = Math.floor(wordsArr.length / 2);
+            return wordsArr.map((word, i) => {
+                if (i === midIndex) return displayWord(word);
+                return word;
+            }).join(' ');
+        }
+
+        function getCurrentWpm() {
+            if (!autoRamp || words.length === 0) return wpm;
+            // Linear ramp from startWpm to targetWpm based on progress
+            const progress = currentIndex / words.length;
+            return Math.round(startWpm + (targetWpm - startWpm) * progress);
+        }
+
+        function getDelayForWord(word) {
+            const currentWpm = getCurrentWpm();
+            const baseDelay = 60000 / currentWpm;
+            if (!word) return baseDelay;
+            const lastChar = word[word.length - 1];
+            // Longer pause for sentence endings
+            if (['.', '!', '?'].includes(lastChar)) return baseDelay * 2;
+            // Medium pause for clause breaks
+            if ([',', ';', ':', '-', '—'].includes(lastChar)) return baseDelay * 1.5;
+            return baseDelay;
         }
 
         function showWord() {
             const display = document.getElementById('display');
             if (currentIndex < words.length) {
-                display.innerHTML = displayWord(words[currentIndex]);
-                currentIndex++;
+                // Get chunk of words
+                const chunk = words.slice(currentIndex, currentIndex + chunkSize);
+                display.innerHTML = displayChunk(chunk);
+                currentIndex += chunkSize;
                 updateProgress();
+                // Schedule next word with variable delay (based on last word in chunk)
+                if (isPlaying) {
+                    const lastWord = chunk[chunk.length - 1];
+                    timer = setTimeout(showWord, getDelayForWord(lastWord) * chunkSize);
+                }
             } else {
                 stop();
                 display.innerHTML = '(Finished)';
@@ -117,18 +230,91 @@
 
         function start() {
             if (words.length === 0 || currentIndex >= words.length) return;
-            if (timer) clearInterval(timer);
-            const delay = 60000 / wpm;
-            timer = setInterval(showWord, delay);
+            if (timer) clearTimeout(timer);
             isPlaying = true;
+            sessionStartTime = Date.now();
+            sessionStartIndex = currentIndex;
             document.querySelector('button[onclick="togglePlay()"]').textContent = 'Pause';
+            showWord();
         }
 
         function stop() {
-            if (timer) clearInterval(timer);
+            if (timer) clearTimeout(timer);
             timer = null;
             isPlaying = false;
             document.querySelector('button[onclick="togglePlay()"]').textContent = 'Play';
+            saveCurrentPosition(); // Auto-save position when stopping
+
+            // Track reading session
+            if (sessionStartTime && currentIndex > sessionStartIndex) {
+                const wordsRead = currentIndex - sessionStartIndex;
+                const timeMs = Date.now() - sessionStartTime;
+                const avgWpm = Math.round((wordsRead / timeMs) * 60000);
+
+                readingStats.totalWordsRead += wordsRead;
+                readingStats.totalTimeMs += timeMs;
+                readingStats.sessions.push({
+                    date: Date.now(),
+                    wordsRead,
+                    timeMs,
+                    avgWpm
+                });
+                // Keep only last 50 sessions
+                if (readingStats.sessions.length > 50) {
+                    readingStats.sessions = readingStats.sessions.slice(-50);
+                }
+                localStorage.setItem('focusReaderStats', JSON.stringify(readingStats));
+            }
+            sessionStartTime = null;
+        }
+
+        function toggleLibrary() {
+            const panel = document.getElementById('library-panel');
+            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+            if (panel.style.display === 'block') {
+                updateLibraryUI();
+            }
+        }
+
+        function toggleStats() {
+            const panel = document.getElementById('stats-panel');
+            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+            if (panel.style.display === 'block') {
+                updateStatsUI();
+            }
+        }
+
+        function updateStatsUI() {
+            const statsContent = document.getElementById('stats-content');
+            const totalMinutes = Math.round(readingStats.totalTimeMs / 60000);
+            const avgWpm = readingStats.totalTimeMs > 0
+                ? Math.round((readingStats.totalWordsRead / readingStats.totalTimeMs) * 60000)
+                : 0;
+
+            let html = `
+                <div><strong>Total words read:</strong> ${readingStats.totalWordsRead.toLocaleString()}</div>
+                <div><strong>Total time:</strong> ${totalMinutes} minutes</div>
+                <div><strong>Avg speed:</strong> ${avgWpm} WPM</div>
+                <div><strong>Sessions:</strong> ${readingStats.sessions.length}</div>
+            `;
+
+            if (readingStats.sessions.length > 0) {
+                html += '<div style="margin-top:10px;"><strong>Recent sessions:</strong></div>';
+                const recent = readingStats.sessions.slice(-5).reverse();
+                recent.forEach(s => {
+                    const date = new Date(s.date).toLocaleDateString();
+                    html += `<div style="font-size:12px;">${date}: ${s.wordsRead} words @ ${s.avgWpm} WPM</div>`;
+                });
+            }
+
+            statsContent.innerHTML = html;
+        }
+
+        function clearStats() {
+            if (!confirm('Clear all reading statistics?')) return;
+            readingStats = { totalWordsRead: 0, totalTimeMs: 0, sessions: [] };
+            localStorage.setItem('focusReaderStats', JSON.stringify(readingStats));
+            updateStatsUI();
         }
 
         function togglePlay() {
@@ -143,14 +329,35 @@
             updateProgress();
         }
 
+        function skipBack() {
+            currentIndex = Math.max(0, currentIndex - 10);
+            if (words.length > 0 && currentIndex < words.length) {
+                document.getElementById('display').innerHTML = displayWord(words[currentIndex]);
+            }
+            updateProgress();
+        }
+
+        function skipForward() {
+            currentIndex = Math.min(words.length, currentIndex + 10);
+            if (currentIndex >= words.length) {
+                stop();
+                document.getElementById('display').innerHTML = '(Finished)';
+            } else {
+                document.getElementById('display').innerHTML = displayWord(words[currentIndex]);
+            }
+            updateProgress();
+        }
+
         function updateProgress() {
             const prog = document.getElementById('progress');
             const info = document.getElementById('info');
             if (words.length > 0) {
                 prog.value = (currentIndex / words.length) * 100;
                 const remainingWords = words.length - currentIndex;
-                const minutesLeft = remainingWords / wpm;
-                info.textContent = `Words: ${currentIndex}/${words.length} | Time left: ${minutesLeft.toFixed(1)} min`;
+                const currentWpm = getCurrentWpm();
+                const minutesLeft = remainingWords / currentWpm;
+                const wpmDisplay = autoRamp ? `${currentWpm} WPM (ramping)` : `${currentWpm} WPM`;
+                info.textContent = `Words: ${currentIndex}/${words.length} | ${wpmDisplay} | Time left: ${minutesLeft.toFixed(1)} min`;
             }
         }
 
@@ -169,6 +376,138 @@
             if (isPlaying) start(); // restart timer with new speed
         });
 
+        document.getElementById('chunk-select').addEventListener('change', (e) => {
+            chunkSize = parseInt(e.target.value);
+        });
+
+        document.getElementById('auto-ramp').addEventListener('change', (e) => {
+            autoRamp = e.target.checked;
+            document.getElementById('ramp-controls').style.display = autoRamp ? 'inline' : 'none';
+            updateProgress();
+        });
+
+        document.getElementById('start-wpm').addEventListener('input', (e) => {
+            startWpm = parseInt(e.target.value) || 200;
+        });
+
+        document.getElementById('target-wpm').addEventListener('input', (e) => {
+            targetWpm = parseInt(e.target.value) || 600;
+        });
+
+        document.getElementById('theme-select').addEventListener('change', (e) => {
+            document.body.className = e.target.value === 'dark' ? '' : `theme-${e.target.value}`;
+        });
+
+        document.getElementById('font-size').addEventListener('input', (e) => {
+            fontSize = parseInt(e.target.value);
+            document.getElementById('display').style.fontSize = fontSize + 'px';
+        });
+
+        document.getElementById('font-family').addEventListener('change', (e) => {
+            fontFamily = e.target.value;
+            document.getElementById('display').style.fontFamily = fontFamily;
+        });
+
+        document.getElementById('pivot-color').addEventListener('input', (e) => {
+            pivotColor = e.target.value;
+            // Refresh display if there's a current word showing
+            if (words.length > 0 && currentIndex > 0 && currentIndex <= words.length) {
+                const chunk = words.slice(Math.max(0, currentIndex - chunkSize), currentIndex);
+                document.getElementById('display').innerHTML = displayChunk(chunk);
+            }
+        });
+
+        document.getElementById('progress-container').addEventListener('click', (e) => {
+            if (words.length === 0) return;
+            const progress = document.getElementById('progress');
+            const rect = progress.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const percentage = clickX / rect.width;
+            currentIndex = Math.floor(percentage * words.length);
+            currentIndex = Math.max(0, Math.min(currentIndex, words.length));
+            if (currentIndex < words.length) {
+                const chunk = words.slice(currentIndex, currentIndex + chunkSize);
+                document.getElementById('display').innerHTML = displayChunk(chunk);
+            }
+            updateProgress();
+        });
+
+        // Drag and drop support
+        const inputsDiv = document.getElementById('inputs');
+
+        inputsDiv.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            inputsDiv.classList.add('dragover');
+        });
+
+        inputsDiv.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            inputsDiv.classList.remove('dragover');
+        });
+
+        inputsDiv.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            inputsDiv.classList.remove('dragover');
+            const file = e.dataTransfer.files[0];
+            if (!file) return;
+
+            if (file.name.endsWith('.pdf')) {
+                const arrayBuffer = await file.arrayBuffer();
+                const text = await processPdf(arrayBuffer);
+                loadWords(text);
+            } else if (file.name.endsWith('.txt')) {
+                const reader = new FileReader();
+                reader.onload = (e) => loadWords(e.target.result);
+                reader.readAsText(file);
+            } else {
+                alert('Please drop a .txt or .pdf file');
+            }
+        });
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            // Ignore if typing in textarea
+            if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
+
+            switch(e.code) {
+                case 'Space':
+                    e.preventDefault();
+                    togglePlay();
+                    break;
+                case 'ArrowLeft':
+                    e.preventDefault();
+                    wpm = Math.max(100, wpm - 50);
+                    document.getElementById('wpm-slider').value = wpm;
+                    document.getElementById('wpm-value').textContent = wpm;
+                    if (isPlaying) start();
+                    break;
+                case 'ArrowRight':
+                    e.preventDefault();
+                    wpm = Math.min(1000, wpm + 50);
+                    document.getElementById('wpm-slider').value = wpm;
+                    document.getElementById('wpm-value').textContent = wpm;
+                    if (isPlaying) start();
+                    break;
+                case 'KeyR':
+                    e.preventDefault();
+                    reset();
+                    break;
+                case 'ArrowUp':
+                    e.preventDefault();
+                    skipForward();
+                    break;
+                case 'ArrowDown':
+                    e.preventDefault();
+                    skipBack();
+                    break;
+            }
+        });
+
+        // Click to pause/play
+        document.getElementById('display').addEventListener('click', () => {
+            if (words.length > 0) togglePlay();
+        });
+
         async function processPdf(arrayBuffer) {
             const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
             let fullText = '';
@@ -182,13 +521,98 @@
             return fullText;
         }
 
-        function loadWords(text) {
+        function loadWords(text, textId = null) {
             words = text.trim().split(/\s+/).filter(w => w.length > 0);
             currentIndex = 0;
+            currentTextId = textId;
             document.getElementById('controls').style.display = 'block';
             document.getElementById('display').innerHTML = '';
             updateProgress();
             stop();
+
+            // If loading from library, restore position
+            if (textId) {
+                const item = library.find(i => i.id === textId);
+                if (item && item.position) {
+                    currentIndex = Math.min(item.position, words.length);
+                    if (currentIndex > 0 && currentIndex < words.length) {
+                        const chunk = words.slice(currentIndex, currentIndex + chunkSize);
+                        document.getElementById('display').innerHTML = displayChunk(chunk);
+                    }
+                    updateProgress();
+                }
+            }
+        }
+
+        function saveLibrary() {
+            localStorage.setItem('focusReaderLibrary', JSON.stringify(library));
+        }
+
+        function saveCurrentPosition() {
+            if (!currentTextId || words.length === 0) return;
+            const item = library.find(i => i.id === currentTextId);
+            if (item) {
+                item.position = currentIndex;
+                item.lastRead = Date.now();
+                saveLibrary();
+            }
+        }
+
+        function saveToLibrary() {
+            if (words.length === 0) {
+                alert('Load some text first!');
+                return;
+            }
+            const title = prompt('Enter a title for this text:', 'Untitled');
+            if (!title) return;
+
+            const id = Date.now().toString();
+            const text = words.join(' ');
+            library.push({
+                id,
+                title,
+                text,
+                position: currentIndex,
+                wordCount: words.length,
+                created: Date.now(),
+                lastRead: Date.now()
+            });
+            currentTextId = id;
+            saveLibrary();
+            updateLibraryUI();
+            alert('Saved to library!');
+        }
+
+        function loadFromLibrary(id) {
+            const item = library.find(i => i.id === id);
+            if (item) {
+                loadWords(item.text, item.id);
+            }
+        }
+
+        function deleteFromLibrary(id) {
+            if (!confirm('Delete this item from your library?')) return;
+            library = library.filter(i => i.id !== id);
+            saveLibrary();
+            updateLibraryUI();
+        }
+
+        function updateLibraryUI() {
+            const libraryList = document.getElementById('library-list');
+            if (library.length === 0) {
+                libraryList.innerHTML = '<em>No saved texts</em>';
+                return;
+            }
+            libraryList.innerHTML = library.map(item => {
+                const progress = item.position ? Math.round((item.position / item.wordCount) * 100) : 0;
+                return `
+                    <div style="margin:5px 0; padding:5px; background:rgba(128,128,128,0.2); border-radius:4px;">
+                        <strong>${item.title}</strong> (${item.wordCount} words, ${progress}%)
+                        <button onclick="loadFromLibrary('${item.id}')" style="margin:2px; padding:2px 6px;">Load</button>
+                        <button onclick="deleteFromLibrary('${item.id}')" style="margin:2px; padding:2px 6px;">Delete</button>
+                    </div>
+                `;
+            }).join('');
         }
 
         async function loadText() {
@@ -215,6 +639,9 @@
                 reader.readAsText(file);
             }
         }
+
+        // Initialize library UI on page load
+        updateLibraryUI();
     </script>
 </body>
 </html>
